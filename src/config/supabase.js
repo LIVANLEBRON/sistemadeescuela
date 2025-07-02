@@ -1,13 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Obtener las variables de entorno o usar valores de desarrollo
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://xyzcompany.supabase.co'
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example-key'
-
-// Mostrar advertencia en lugar de lanzar error
-if (!process.env.REACT_APP_SUPABASE_URL || !process.env.REACT_APP_SUPABASE_ANON_KEY) {
-  console.warn('⚠️ Usando valores de desarrollo para Supabase. Configure el archivo .env para producción.')
-}
+// Usar directamente las credenciales de Supabase para simplificar el despliegue
+const supabaseUrl = 'https://tvcizsllctptvxjzhagh.supabase.co'  // URL real de Supabase
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2Y2l6c2xsY3RwdHZ4anpoYWdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA0NjYyOTQsImV4cCI6MjA2NjA0MjI5NH0.1Gzk7YD3Xj2fhyu3IBTpzV5C4zljx5kP7GW41EOrI64'  // Clave anónima real de Supabase
 
 // Crear cliente de Supabase con opciones mejoradas de manejo de errores
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
