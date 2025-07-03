@@ -64,31 +64,109 @@ const CourseManagement = () => {
   }
 
   const fetchCourses = async () => {
-    const { data, error } = await supabase
-      .from('cursos')
-      .select(`
-        *,
-        estudiantes(count),
-        materias(count)
-      `)
-      .order('grado', { ascending: true })
+    try {
+      // Usar la función RPC que creamos en lugar de la consulta directa
+      const { data, error } = await supabase
+        .rpc('get_all_cursos_with_counts')
 
-    if (error) throw error
-    setCourses(data || [])
+      if (error) throw error
+      setCourses(data || [])
+    } catch (error) {
+      console.error('Error en fetchCourses:', error)
+      // Fallback: intentar obtener solo los cursos sin conteos
+      const { data, error: fallbackError } = await supabase
+        .from('cursos')
+        .select('*')
+        .order('grado', { ascending: true })
+
+      if (fallbackError) throw fallbackError
+      setCourses(data?.map(curso => ({
+        ...curso,
+        estudiantes_count: 0,
+        materias_count: 0
+      })) || [])
+    }
   }
 
   const fetchSubjects = async () => {
-    const { data, error } = await supabase
-      .from('materias')
-      .select(`
-        *,
-        cursos(nombre, grado),
-        profesores(nombre, apellido)
-      `)
-      .order('nombre', { ascending: true })
+    try {
+      // Obtener solo las materias sin intentar unir con cursos
+      const { data, error } = await supabase
+        .from('materias')
+        .select('*')
+        .order('nombre', { ascending: true })
 
-    if (error) throw error
-    setSubjects(data || [])
+      if (error) throw error
+      
+      // Para cada materia, buscar sus cursos asociados usando la vista
+      const materiasConCursos = await Promise.all(data.map(async (materia) => {
+        try {
+          // Intentar obtener cursos relacionados a través de la tabla intermedia
+          const { data: cursosData } = await supabase
+            .from('cursos_materias')
+            .select('curso_id')
+            .eq('materia_id', materia.id)
+          
+          // Obtener detalles de los cursos
+          let cursos = [];
+          if (cursosData && cursosData.length > 0) {
+            const cursoIds = cursosData.map(cm => cm.curso_id);
+            const { data: cursosInfo } = await supabase
+              .from('cursos')
+              .select('id, nombre, grado')
+              .in('id', cursoIds);
+            
+            cursos = cursosInfo || [];
+          }
+          
+          // Obtener profesor asignado si existe
+          const { data: profesorData } = await supabase
+            .from('asignaciones')
+            .select('profesor_id')
+            .eq('materia_id', materia.id)
+            .limit(1);
+          
+          let profesores = [];
+          if (profesorData && profesorData.length > 0) {
+            const { data: profesorInfo } = await supabase
+              .from('profesores')
+              .select('id, nombre, apellido')
+              .eq('id', profesorData[0].profesor_id);
+            
+            profesores = profesorInfo || [];
+          }
+          
+          return {
+            ...materia,
+            cursos,
+            profesores
+          };
+        } catch (err) {
+          console.error('Error al obtener relaciones para materia:', err);
+          return {
+            ...materia,
+            cursos: [],
+            profesores: []
+          };
+        }
+      }));
+      
+      setSubjects(materiasConCursos || []);
+    } catch (error) {
+      console.error('Error en fetchSubjects:', error);
+      // Fallback: obtener solo las materias sin relaciones
+      const { data, error: fallbackError } = await supabase
+        .from('materias')
+        .select('*')
+        .order('nombre', { ascending: true });
+        
+      if (fallbackError) throw fallbackError;
+      setSubjects(data?.map(materia => ({
+        ...materia,
+        cursos: [],
+        profesores: []
+      })) || []);
+    }
   }
 
   const fetchTeachers = async () => {
