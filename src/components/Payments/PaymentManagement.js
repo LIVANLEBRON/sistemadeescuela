@@ -66,9 +66,23 @@ const PaymentManagement = () => {
   ]
 
 
+  // Manejo de sesión expirada y errores globales
   useEffect(() => {
-    fetchPayments()
-    fetchStudents()
+    const fetchAll = async () => {
+      try {
+        await fetchPayments()
+        await fetchStudents()
+      } catch (error) {
+        if (error?.status === 401 || (error?.message && error.message.toLowerCase().includes('jwt'))) {
+          alert('Tu sesión ha expirado. Por favor, vuelve a iniciar sesión.');
+          if (supabase.auth) await supabase.auth.signOut();
+          window.location.reload();
+        } else {
+          alert('Error de red o autenticación. Intenta recargar la página.');
+        }
+      }
+    }
+    fetchAll();
     // eslint-disable-next-line
   }, [page])
 
@@ -78,10 +92,13 @@ const PaymentManagement = () => {
     const to = from + pageSize - 1
     const { data, error, count } = await supabase
       .from('pagos')
-      .select(`id, estudiante_id, tipo_pago, monto, fecha_pago, estado, metodo_pago, descripcion, numero_recibo, created_at, estudiantes(id, nombre, apellido, cedula)`, { count: 'exact' })
+      .select('id, estudiante_id, tipo_pago, monto, fecha_pago, estado, metodo_pago, descripcion, numero_recibo, created_at', { count: 'exact' })
       .order('fecha_pago', { ascending: false })
       .range(from, to)
-    if (error) throw error
+    if (error) {
+      // Propaga el error para manejo global
+      throw error
+    }
     setPayments(data || [])
     setTotalPayments(count || 0)
     setLoading(false)
@@ -263,12 +280,18 @@ const PaymentManagement = () => {
   }
 
 
-  const filteredPayments = payments.filter(payment => {
+  // Unir pagos con estudiantes en frontend
+  const paymentsWithStudent = payments.map(payment => ({
+    ...payment,
+    estudiante: students.find(s => s.id === payment.estudiante_id) || null
+  }))
+
+  const filteredPayments = paymentsWithStudent.filter(payment => {
     const searchLower = searchTerm.toLowerCase()
     const matchesSearch = (
-      payment.estudiantes?.nombre?.toLowerCase().includes(searchLower) ||
-      payment.estudiantes?.apellido?.toLowerCase().includes(searchLower) ||
-      payment.estudiantes?.cedula?.toLowerCase().includes(searchLower) ||
+      payment.estudiante?.nombre?.toLowerCase().includes(searchLower) ||
+      payment.estudiante?.apellido?.toLowerCase().includes(searchLower) ||
+      payment.estudiante?.cedula?.toLowerCase().includes(searchLower) ||
       payment.numero_recibo?.toLowerCase().includes(searchLower)
     )
     const matchesStatus = !statusFilter || payment.estado === statusFilter
@@ -440,10 +463,10 @@ const PaymentManagement = () => {
                   <td>
                     <div>
                       <div className="font-medium text-gray-900">
-                        {payment.estudiantes?.nombre} {payment.estudiantes?.apellido}
+                        {payment.estudiante?.nombre} {payment.estudiante?.apellido}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {payment.estudiantes?.cedula}
+                        {payment.estudiante?.cedula}
                       </div>
                     </div>
                   </td>

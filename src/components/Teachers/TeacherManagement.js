@@ -36,8 +36,22 @@ const TeacherManagement = () => {
     estado: 'activo'
   })
 
+  // Manejo de sesión expirada y errores globales
   useEffect(() => {
-    fetchTeachers()
+    const fetchAll = async () => {
+      try {
+        await fetchTeachers()
+      } catch (error) {
+        if (error?.status === 401 || (error?.message && error.message.toLowerCase().includes('jwt'))) {
+          alert('Tu sesión ha expirado. Por favor, vuelve a iniciar sesión.');
+          if (supabase.auth) await supabase.auth.signOut();
+          window.location.reload();
+        } else {
+          alert('Error de red o autenticación. Intenta recargar la página.');
+        }
+      }
+    }
+    fetchAll();
   }, [])
 
   const fetchTeachers = async () => {

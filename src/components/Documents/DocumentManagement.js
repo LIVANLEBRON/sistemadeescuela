@@ -59,8 +59,22 @@ const DocumentManagement = () => {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx'
   }
 
+  // Manejo de sesión expirada y errores globales
   useEffect(() => {
-    fetchData()
+    const fetchAll = async () => {
+      try {
+        await fetchData()
+      } catch (error) {
+        if (error?.status === 401 || (error?.message && error.message.toLowerCase().includes('jwt'))) {
+          alert('Tu sesión ha expirado. Por favor, vuelve a iniciar sesión.');
+          if (supabase.auth) await supabase.auth.signOut();
+          window.location.reload();
+        } else {
+          alert('Error de red o autenticación. Intenta recargar la página.');
+        }
+      }
+    }
+    fetchAll();
   }, [])
 
   const fetchData = async () => {
