@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase, handleSupabaseError } from '../../config/supabase'
+import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { auth } from '../../config/firebase';
 import {
   Plus,
   Search,
@@ -66,25 +68,36 @@ const PaymentManagement = () => {
   ]
 
 
-  // Manejo de sesión expirada y errores globales
+  // Manejo de sesión expirada y errores globales con Firebase Auth
   useEffect(() => {
+    // Redirección automática si la sesión de Firebase expira
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        alert('Tu sesión ha expirado. Por favor, vuelve a iniciar sesión.');
+        if (supabase.auth) supabase.auth.signOut();
+        window.location.href = '/login';
+      }
+    });
     const fetchAll = async () => {
       try {
-        await fetchPayments()
-        await fetchStudents()
+        await fetchPayments();
+        await fetchStudents();
       } catch (error) {
         if (error?.status === 401 || (error?.message && error.message.toLowerCase().includes('jwt'))) {
           alert('Tu sesión ha expirado. Por favor, vuelve a iniciar sesión.');
           if (supabase.auth) await supabase.auth.signOut();
-          window.location.reload();
+          // Cierra sesión también en Firebase
+          await firebaseSignOut(auth);
+          window.location.href = '/login';
         } else {
           alert('Error de red o autenticación. Intenta recargar la página.');
         }
       }
-    }
+    };
     fetchAll();
+    return () => unsubscribe();
     // eslint-disable-next-line
-  }, [page])
+  }, [page]);
 
   const fetchPayments = async () => {
     setLoading(true)

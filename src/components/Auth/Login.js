@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { supabase, handleSupabaseError } from '../../config/supabase'
 import { Eye, EyeOff, School, Mail, Lock } from 'lucide-react'
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../../config/firebase';
 
 const Login = () => {
   const [email, setEmail] = useState('')
@@ -10,31 +12,22 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false)
 
   const handleLogin = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
+    e.preventDefault();
+    setLoading(true);
+    setError('');
     try {
-      console.log('Intentando iniciar sesión con:', { email })
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        console.error('Error de inicio de sesión:', error)
-        setError(handleSupabaseError(error))
-        return
-      }
-      
-      console.log('Inicio de sesión exitoso:', data.user?.email)
+      // Login con Firebase Auth
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Opcional: sincronizar sesión con Supabase si lo necesitas
+      // const firebaseToken = await userCredential.user.getIdToken();
+      // await supabase.auth.signInWithIdToken({ provider: 'firebase', id_token: firebaseToken });
+      window.location.href = '/'; // Redirige al dashboard o página principal
     } catch (error) {
-      console.error('Error inesperado durante el inicio de sesión:', error)
-      setError('Error de conexión. Intente nuevamente. Detalles: ' + (error.message || 'Desconocido'))
+      setError('Credenciales incorrectas o error de conexión.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
