@@ -33,30 +33,26 @@ const Dashboard = ({ userRole }) => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true)
-      
-      // Obtener estadísticas básicas
-      const [studentsResult, teachersResult, coursesResult, paymentsResult] = await Promise.all([
-        supabase.from('estudiantes').select('id', { count: 'exact' }),
-        supabase.from('profesores').select('id', { count: 'exact' }),
-        supabase.from('cursos').select('id', { count: 'exact' }),
-        supabase.from('pagos').select('*').order('fecha_pago', { ascending: false }).limit(10)
-      ])
 
-      // Calcular pagos pendientes y ingresos mensuales
-      const currentMonth = new Date().getMonth() + 1
-      const currentYear = new Date().getFullYear()
-      
-      const pendingPaymentsResult = await supabase
-        .from('pagos')
-        .select('*')
-        .eq('estado', 'pendiente')
-      
-      const monthlyRevenueResult = await supabase
-        .from('pagos')
-        .select('monto')
-        .eq('estado', 'pagado')
-        .gte('fecha_pago', `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`)
-        .lt('fecha_pago', `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-01`)
+      // Obtener estadísticas básicas solo con conteo
+      const [studentsResult, teachersResult, coursesResult, paymentsResult, pendingPaymentsResult, monthlyRevenueResult] = await Promise.all([
+        supabase.from('estudiantes').select('id', { count: 'exact', head: true }),
+        supabase.from('profesores').select('id', { count: 'exact', head: true }),
+        supabase.from('cursos').select('id', { count: 'exact', head: true }),
+        supabase.from('pagos').select('id, estudiante_id, monto, estado, fecha_vencimiento').order('fecha_pago', { ascending: false }).limit(10),
+        supabase.from('pagos').select('id', { count: 'exact', head: true }).eq('estado', 'pendiente'),
+        supabase.from('pagos')
+          .select('monto')
+          .eq('estado', 'pagado')
+          .gte('fecha_pago', (() => {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+          })())
+          .lt('fecha_pago', (() => {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 2).padStart(2, '0')}-01`;
+          })())
+      ])
 
       const monthlyRevenue = monthlyRevenueResult.data?.reduce((sum, payment) => sum + payment.monto, 0) || 0
 
@@ -64,7 +60,7 @@ const Dashboard = ({ userRole }) => {
         totalStudents: studentsResult.count || 0,
         totalTeachers: teachersResult.count || 0,
         totalCourses: coursesResult.count || 0,
-        pendingPayments: pendingPaymentsResult.data?.length || 0,
+        pendingPayments: pendingPaymentsResult.count || 0,
         monthlyRevenue,
         recentPayments: paymentsResult.data || []
       })

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../config/supabase'
 import {
   Plus,
@@ -13,8 +13,15 @@ import {
 import LoadingSpinner from '../Common/LoadingSpinner'
 
 const CourseManagement = () => {
+  // Estados para paginación y conteo
   const [courses, setCourses] = useState([])
+  const [coursesCount, setCoursesCount] = useState(0)
+  const [coursesPage, setCoursesPage] = useState(1)
+  const coursesPageSize = 12
   const [subjects, setSubjects] = useState([])
+  const [subjectsCount, setSubjectsCount] = useState(0)
+  const [subjectsPage, setSubjectsPage] = useState(1)
+  const subjectsPageSize = 12
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('courses')
@@ -22,7 +29,6 @@ const CourseManagement = () => {
   const [showModal, setShowModal] = useState(false)
   const [modalType, setModalType] = useState('course') // 'course' or 'subject'
   const [editingItem, setEditingItem] = useState(null)
-  
   const [courseFormData, setCourseFormData] = useState({
     nombre: '',
     grado: '',
@@ -32,7 +38,6 @@ const CourseManagement = () => {
     ano_escolar: new Date().getFullYear().toString(),
     estado: 'activo'
   })
-  
   const [subjectFormData, setSubjectFormData] = useState({
     nombre: '',
     codigo: '',
@@ -63,109 +68,49 @@ const CourseManagement = () => {
     }
   }
 
+  // Optimización: paginación y solo columnas necesarias
   const fetchCourses = async () => {
     try {
-      // Usar la función RPC que creamos en lugar de la consulta directa
-      const { data, error } = await supabase
-        .rpc('get_all_cursos_with_counts')
-
-      if (error) throw error
-      setCourses(data || [])
-    } catch (error) {
-      console.error('Error en fetchCourses:', error)
-      // Fallback: intentar obtener solo los cursos sin conteos
-      const { data, error: fallbackError } = await supabase
+      setLoading(true);
+      const from = (coursesPage - 1) * coursesPageSize;
+      const to = from + coursesPageSize - 1;
+      const { data, error, count } = await supabase
         .from('cursos')
-        .select('*')
+        .select('id, nombre, grado, seccion, descripcion, capacidad_maxima, ano_escolar, estado', { count: 'exact' })
         .order('grado', { ascending: true })
-
-      if (fallbackError) throw fallbackError
-      setCourses(data?.map(curso => ({
-        ...curso,
-        estudiantes_count: 0,
-        materias_count: 0
-      })) || [])
+        .range(from, to);
+      if (error) throw error;
+      setCourses(data || []);
+      setCoursesCount(count || 0);
+    } catch (error) {
+      console.error('Error en fetchCourses:', error);
+      setCourses([]);
+      setCoursesCount(0);
+    } finally {
+      setLoading(false);
     }
   }
 
+  // Optimización: paginación y solo columnas necesarias (sin bucles de relaciones)
   const fetchSubjects = async () => {
     try {
-      // Obtener solo las materias sin intentar unir con cursos
-      const { data, error } = await supabase
+      setLoading(true);
+      const from = (subjectsPage - 1) * subjectsPageSize;
+      const to = from + subjectsPageSize - 1;
+      const { data, error, count } = await supabase
         .from('materias')
-        .select('*')
+        .select('id, nombre, codigo, descripcion, creditos, horas_semanales, curso_id, profesor_id, estado', { count: 'exact' })
         .order('nombre', { ascending: true })
-
-      if (error) throw error
-      
-      // Para cada materia, buscar sus cursos asociados usando la vista
-      const materiasConCursos = await Promise.all(data.map(async (materia) => {
-        try {
-          // Intentar obtener cursos relacionados a través de la tabla intermedia
-          const { data: cursosData } = await supabase
-            .from('cursos_materias')
-            .select('curso_id')
-            .eq('materia_id', materia.id)
-          
-          // Obtener detalles de los cursos
-          let cursos = [];
-          if (cursosData && cursosData.length > 0) {
-            const cursoIds = cursosData.map(cm => cm.curso_id);
-            const { data: cursosInfo } = await supabase
-              .from('cursos')
-              .select('id, nombre, grado')
-              .in('id', cursoIds);
-            
-            cursos = cursosInfo || [];
-          }
-          
-          // Obtener profesor asignado si existe
-          const { data: profesorData } = await supabase
-            .from('asignaciones')
-            .select('profesor_id')
-            .eq('materia_id', materia.id)
-            .limit(1);
-          
-          let profesores = [];
-          if (profesorData && profesorData.length > 0) {
-            const { data: profesorInfo } = await supabase
-              .from('profesores')
-              .select('id, nombre, apellido')
-              .eq('id', profesorData[0].profesor_id);
-            
-            profesores = profesorInfo || [];
-          }
-          
-          return {
-            ...materia,
-            cursos,
-            profesores
-          };
-        } catch (err) {
-          console.error('Error al obtener relaciones para materia:', err);
-          return {
-            ...materia,
-            cursos: [],
-            profesores: []
-          };
-        }
-      }));
-      
-      setSubjects(materiasConCursos || []);
+        .range(from, to);
+      if (error) throw error;
+      setSubjects(data || []);
+      setSubjectsCount(count || 0);
     } catch (error) {
       console.error('Error en fetchSubjects:', error);
-      // Fallback: obtener solo las materias sin relaciones
-      const { data, error: fallbackError } = await supabase
-        .from('materias')
-        .select('*')
-        .order('nombre', { ascending: true });
-        
-      if (fallbackError) throw fallbackError;
-      setSubjects(data?.map(materia => ({
-        ...materia,
-        cursos: [],
-        profesores: []
-      })) || []);
+      setSubjects([]);
+      setSubjectsCount(0);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -185,8 +130,16 @@ const CourseManagement = () => {
     setLoading(true)
 
     try {
+      // Asegurar que grado sea un número
+      const gradoValue = courseFormData.grado ? parseInt(courseFormData.grado) : null;
+      if (isNaN(gradoValue)) {
+        alert('El campo "grado" debe ser un número (ejemplo: 6, 1, 2, etc.)');
+        setLoading(false);
+        return;
+      }
       const dataToSave = {
         ...courseFormData,
+        grado: gradoValue,
         capacidad_maxima: courseFormData.capacidad_maxima ? parseInt(courseFormData.capacidad_maxima) : null
       }
 
@@ -211,7 +164,7 @@ const CourseManagement = () => {
       resetCourseForm()
     } catch (error) {
       console.error('Error saving course:', error)
-      alert('Error al guardar el curso')
+      alert('Error al guardar el curso: ' + (error.message || error.code || error))
     } finally {
       setLoading(false)
     }
@@ -334,27 +287,31 @@ const CourseManagement = () => {
     })
   }
 
-  const filteredCourses = courses.filter(course => {
-    const searchLower = searchTerm.toLowerCase()
-    return (
+  // Memoización para filtros
+  const filteredCourses = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase();
+    return courses.filter(course =>
       course.nombre?.toLowerCase().includes(searchLower) ||
-      course.grado?.toLowerCase().includes(searchLower) ||
+      String(course.grado).toLowerCase().includes(searchLower) ||
       course.seccion?.toLowerCase().includes(searchLower)
-    )
-  })
+    );
+  }, [courses, searchTerm]);
 
-  const filteredSubjects = subjects.filter(subject => {
-    const searchLower = searchTerm.toLowerCase()
-    return (
+  const filteredSubjects = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase();
+    return subjects.filter(subject =>
       subject.nombre?.toLowerCase().includes(searchLower) ||
-      subject.codigo?.toLowerCase().includes(searchLower) ||
-      subject.cursos?.nombre?.toLowerCase().includes(searchLower)
-    )
-  })
+      subject.codigo?.toLowerCase().includes(searchLower)
+    );
+  }, [subjects, searchTerm]);
 
   if (loading && courses.length === 0 && subjects.length === 0) {
     return <LoadingSpinner />
   }
+
+  // Paginación UI (ejemplo simple, puedes mejorar el diseño)
+  const totalCoursesPages = Math.ceil(coursesCount / coursesPageSize);
+  const totalSubjectsPages = Math.ceil(subjectsCount / subjectsPageSize);
 
   return (
     <div className="space-y-6">
@@ -426,141 +383,165 @@ const CourseManagement = () => {
 
       {/* Content */}
       {activeTab === 'courses' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCourses.map((course) => (
-            <div key={course.id} className="card">
-              <div className="card-content">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center">
-                    <div className="bg-blue-100 p-3 rounded-full">
-                      <BookOpen className="h-6 w-6 text-blue-600" />
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredCourses.map((course) => (
+              <div key={course.id} className="card">
+                <div className="card-content">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center">
+                      <div className="bg-blue-100 p-3 rounded-full">
+                        <BookOpen className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {course.grado} - {course.nombre}
+                        </h3>
+                        <p className="text-sm text-gray-600">Sección {course.seccion}</p>
+                      </div>
                     </div>
-                    <div className="ml-3">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {course.grado} - {course.nombre}
-                      </h3>
-                      <p className="text-sm text-gray-600">Sección {course.seccion}</p>
-                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      course.estado === 'activo' 
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {course.estado}
+                    </span>
                   </div>
-                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                    course.estado === 'activo' 
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {course.estado}
-                  </span>
-                </div>
-                
-                <div className="space-y-2 mb-4">
-                  <div className="text-sm text-gray-600">
-                    <strong>Año Escolar:</strong> {course.ano_escolar}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    <strong>Capacidad:</strong> {course.capacidad_maxima || 'No definida'}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    <strong>Estudiantes:</strong> {course.estudiantes?.[0]?.count || 0}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    <strong>Materias:</strong> {course.materias?.[0]?.count || 0}
-                  </div>
-                  {course.descripcion && (
+                  <div className="space-y-2 mb-4">
                     <div className="text-sm text-gray-600">
-                      <strong>Descripción:</strong> {course.descripcion}
+                      <strong>Año Escolar:</strong> {course.ano_escolar}
                     </div>
-                  )}
-                </div>
-                
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => handleEdit(course, 'course')}
-                    className="text-blue-600 hover:text-blue-900"
-                    title="Editar"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(course.id, 'course')}
-                    className="text-red-600 hover:text-red-900"
-                    title="Eliminar"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                    <div className="text-sm text-gray-600">
+                      <strong>Capacidad:</strong> {course.capacidad_maxima || 'No definida'}
+                    </div>
+                    {/* Si quieres mostrar conteos, deberás traerlos con una vista o RPC optimizada */}
+                    {course.descripcion && (
+                      <div className="text-sm text-gray-600">
+                        <strong>Descripción:</strong> {course.descripcion}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => handleEdit(course, 'course')}
+                      className="text-blue-600 hover:text-blue-900"
+                      title="Editar"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(course.id, 'course')}
+                      className="text-red-600 hover:text-red-900"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card">
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Materia</th>
-                  <th>Código</th>
-                  <th>Curso</th>
-                  <th>Profesor</th>
-                  <th>Créditos</th>
-                  <th>Horas/Semana</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSubjects.map((subject) => (
-                  <tr key={subject.id}>
-                    <td>
-                      <div>
-                        <div className="font-medium text-gray-900">{subject.nombre}</div>
-                        {subject.descripcion && (
-                          <div className="text-sm text-gray-500">{subject.descripcion}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td>{subject.codigo}</td>
-                    <td>{subject.cursos?.nombre || 'Sin asignar'}</td>
-                    <td>
-                      {subject.profesores ? 
-                        `${subject.profesores.nombre} ${subject.profesores.apellido}` : 
-                        'Sin asignar'
-                      }
-                    </td>
-                    <td>{subject.creditos || '-'}</td>
-                    <td>{subject.horas_semanales || '-'}</td>
-                    <td>
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        subject.estado === 'activo' 
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {subject.estado}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleEdit(subject, 'subject')}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Editar"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(subject.id, 'subject')}
-                          className="text-red-600 hover:text-red-900"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            ))}
           </div>
-        </div>
+          {/* Paginación de cursos */}
+          {totalCoursesPages > 1 && (
+            <div className="flex justify-center mt-4 gap-2">
+              <button
+                className="btn btn-sm"
+                disabled={coursesPage === 1}
+                onClick={() => setCoursesPage(coursesPage - 1)}
+              >Anterior</button>
+              <span className="px-2 py-1">Página {coursesPage} de {totalCoursesPages}</span>
+              <button
+                className="btn btn-sm"
+                disabled={coursesPage === totalCoursesPages}
+                onClick={() => setCoursesPage(coursesPage + 1)}
+              >Siguiente</button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="card">
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Materia</th>
+                    <th>Código</th>
+                    <th>Curso</th>
+                    <th>Profesor</th>
+                    <th>Créditos</th>
+                    <th>Horas/Semana</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSubjects.map((subject) => (
+                    <tr key={subject.id}>
+                      <td>
+                        <div>
+                          <div className="font-medium text-gray-900">{subject.nombre}</div>
+                          {subject.descripcion && (
+                            <div className="text-sm text-gray-500">{subject.descripcion}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td>{subject.codigo}</td>
+                      <td>{courses.find(c => c.id === subject.curso_id)?.nombre || 'Sin asignar'}</td>
+                      <td>{teachers.find(t => t.id === subject.profesor_id) ? `${teachers.find(t => t.id === subject.profesor_id).nombre} ${teachers.find(t => t.id === subject.profesor_id).apellido}` : 'Sin asignar'}</td>
+                      <td>{subject.creditos || '-'}</td>
+                      <td>{subject.horas_semanales || '-'}</td>
+                      <td>
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          subject.estado === 'activo' 
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {subject.estado}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleEdit(subject, 'subject')}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Editar"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(subject.id, 'subject')}
+                            className="text-red-600 hover:text-red-900"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {/* Paginación de materias */}
+          {totalSubjectsPages > 1 && (
+            <div className="flex justify-center mt-4 gap-2">
+              <button
+                className="btn btn-sm"
+                disabled={subjectsPage === 1}
+                onClick={() => setSubjectsPage(subjectsPage - 1)}
+              >Anterior</button>
+              <span className="px-2 py-1">Página {subjectsPage} de {totalSubjectsPages}</span>
+              <button
+                className="btn btn-sm"
+                disabled={subjectsPage === totalSubjectsPages}
+                onClick={() => setSubjectsPage(subjectsPage + 1)}
+              >Siguiente</button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal */}
@@ -608,12 +589,12 @@ const CourseManagement = () => {
                       onChange={(e) => setCourseFormData({...courseFormData, grado: e.target.value})}
                     >
                       <option value="">Seleccionar grado</option>
-                      <option value="1ro">1ro</option>
-                      <option value="2do">2do</option>
-                      <option value="3ro">3ro</option>
-                      <option value="4to">4to</option>
-                      <option value="5to">5to</option>
-                      <option value="6to">6to</option>
+                      <option value="1">1ro</option>
+                      <option value="2">2do</option>
+                      <option value="3">3ro</option>
+                      <option value="4">4to</option>
+                      <option value="5">5to</option>
+                      <option value="6">6to</option>
                     </select>
                   </div>
                   

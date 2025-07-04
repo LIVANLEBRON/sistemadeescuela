@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { supabase } from '../../config/supabase'
+import { supabase, handleSupabaseError } from '../../config/supabase'
 import {
   Plus,
   Search,
@@ -7,9 +7,7 @@ import {
   Trash2,
   DollarSign,
   Download,
-  Filter,
   X,
-  Calendar,
   AlertCircle,
   CheckCircle,
   Clock
@@ -19,6 +17,9 @@ import jsPDF from 'jspdf'
 
 const PaymentManagement = () => {
   const [payments, setPayments] = useState([])
+  const [totalPayments, setTotalPayments] = useState(0)
+  const [page, setPage] = useState(1)
+  const pageSize = 10
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -26,8 +27,8 @@ const PaymentManagement = () => {
   const [typeFilter, setTypeFilter] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editingPayment, setEditingPayment] = useState(null)
-  const [selectedPayment, setSelectedPayment] = useState(null)
-  const [showReceiptModal, setShowReceiptModal] = useState(false)
+  // const [selectedPayment, setSelectedPayment] = useState(null)
+  // const [showReceiptModal, setShowReceiptModal] = useState(false)
   
   const [formData, setFormData] = useState({
     estudiante_id: '',
@@ -64,35 +65,26 @@ const PaymentManagement = () => {
     { value: 'parcial', label: 'Parcial', color: 'bg-blue-100 text-blue-800' }
   ]
 
-  useEffect(() => {
-    fetchData()
-  }, [])
 
-  const fetchData = async () => {
-    try {
-      setLoading(true)
-      await Promise.all([
-        fetchPayments(),
-        fetchStudents()
-      ])
-    } catch (error) {
-      console.error('Error fetching data:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    fetchPayments()
+    fetchStudents()
+    // eslint-disable-next-line
+  }, [page])
 
   const fetchPayments = async () => {
-    const { data, error } = await supabase
+    setLoading(true)
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+    const { data, error, count } = await supabase
       .from('pagos')
-      .select(`
-        *,
-        estudiantes(nombre, apellido, cedula)
-      `)
-      .order('fecha_vencimiento', { ascending: false })
-
+      .select(`id, estudiante_id, tipo_pago, monto, fecha_pago, estado, metodo_pago, descripcion, numero_recibo, created_at, estudiantes(id, nombre, apellido, cedula)`, { count: 'exact' })
+      .order('fecha_pago', { ascending: false })
+      .range(from, to)
     if (error) throw error
     setPayments(data || [])
+    setTotalPayments(count || 0)
+    setLoading(false)
   }
 
   const fetchStudents = async () => {
@@ -143,8 +135,8 @@ const PaymentManagement = () => {
       setEditingPayment(null)
       resetForm()
     } catch (error) {
-      console.error('Error saving payment:', error)
-      alert('Error al guardar el pago')
+      console.error('Error saving payment:', handleSupabaseError(error))
+      alert(handleSupabaseError(error))
     } finally {
       setLoading(false)
     }
@@ -178,8 +170,8 @@ const PaymentManagement = () => {
       if (error) throw error
       await fetchPayments()
     } catch (error) {
-      console.error('Error deleting payment:', error)
-      alert('Error al eliminar el pago')
+      console.error('Error deleting payment:', handleSupabaseError(error))
+      alert(handleSupabaseError(error))
     }
   }
 
@@ -270,6 +262,7 @@ const PaymentManagement = () => {
     }
   }
 
+
   const filteredPayments = payments.filter(payment => {
     const searchLower = searchTerm.toLowerCase()
     const matchesSearch = (
@@ -278,10 +271,8 @@ const PaymentManagement = () => {
       payment.estudiantes?.cedula?.toLowerCase().includes(searchLower) ||
       payment.numero_recibo?.toLowerCase().includes(searchLower)
     )
-    
     const matchesStatus = !statusFilter || payment.estado === statusFilter
     const matchesType = !typeFilter || payment.tipo_pago === typeFilter
-    
     return matchesSearch && matchesStatus && matchesType
   })
 
@@ -426,6 +417,7 @@ const PaymentManagement = () => {
         </div>
       </div>
 
+
       {/* Payments Table */}
       <div className="card">
         <div className="table-container">
@@ -435,7 +427,6 @@ const PaymentManagement = () => {
                 <th>Estudiante</th>
                 <th>Tipo</th>
                 <th>Monto</th>
-                <th>Vencimiento</th>
                 <th>Fecha Pago</th>
                 <th>Estado</th>
                 <th>Método</th>
@@ -462,7 +453,6 @@ const PaymentManagement = () => {
                     </span>
                   </td>
                   <td className="font-semibold">${payment.monto.toFixed(2)}</td>
-                  <td>{new Date(payment.fecha_vencimiento).toLocaleDateString()}</td>
                   <td>{payment.fecha_pago ? new Date(payment.fecha_pago).toLocaleDateString() : '-'}</td>
                   <td>
                     <div className="flex items-center gap-1">
@@ -512,6 +502,24 @@ const PaymentManagement = () => {
               ))}
             </tbody>
           </table>
+        </div>
+        {/* Pagination Controls */}
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            className="btn btn-outline"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
+            Anterior
+          </button>
+          <span>Página {page}</span>
+          <button
+            className="btn btn-outline"
+            disabled={page * pageSize >= totalPayments}
+            onClick={() => setPage(page + 1)}
+          >
+            Siguiente
+          </button>
         </div>
       </div>
 
